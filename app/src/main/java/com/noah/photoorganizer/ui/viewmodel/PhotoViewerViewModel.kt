@@ -4,7 +4,9 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.noah.photoorganizer.data.database.AppDatabase
+import com.noah.photoorganizer.data.model.Album
 import com.noah.photoorganizer.data.repository.PhotoOrganizerRepository
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -25,13 +27,21 @@ class PhotoViewerViewModel(
     val isFavori: StateFlow<Boolean> = repository.isFavori(photoUri)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
+    private val _album = MutableStateFlow<Album?>(null)
+    val album: StateFlow<Album?> = _album
+
+    init {
+        if (albumId != null) {
+            viewModelScope.launch { _album.value = repository.getAlbumById(albumId) }
+        }
+    }
+
     fun toggleFavori() {
         viewModelScope.launch {
             if (isFavori.value) repository.removeFavori(photoUri) else repository.addFavori(photoUri)
         }
     }
 
-    // Appelé après une suppression système réussie : nettoie nos propres références locales
     fun cleanupAfterDelete() {
         viewModelScope.launch {
             albumId?.let { repository.removePhotoFromAlbum(it, photoUri) }
@@ -39,7 +49,7 @@ class PhotoViewerViewModel(
         }
     }
 
-    // Retire uniquement le lien avec cet album, la photo reste sur le téléphone
+    // Pour un album virtuel : retire juste l'association en base
     fun removeFromAlbumOnly(onDone: () -> Unit) {
         viewModelScope.launch {
             albumId?.let { repository.removePhotoFromAlbum(it, photoUri) }

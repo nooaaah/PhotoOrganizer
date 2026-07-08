@@ -5,10 +5,12 @@ import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.noah.photoorganizer.data.database.AppDatabase
+import com.noah.photoorganizer.data.mediastore.BucketHelper
 import com.noah.photoorganizer.data.mediastore.MediaStoreHelper
 import com.noah.photoorganizer.data.model.Album
 import com.noah.photoorganizer.data.repository.PhotoOrganizerRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
@@ -16,6 +18,7 @@ class AlbumViewModel(application: Application, private val albumId: Long) : Andr
 
     private val repository: PhotoOrganizerRepository
     private val mediaStoreHelper = MediaStoreHelper(application)
+    private val bucketHelper = BucketHelper(application)
 
     init {
         val db = AppDatabase.getDatabase(application)
@@ -30,17 +33,28 @@ class AlbumViewModel(application: Application, private val albumId: Long) : Andr
     private val _sortByName = MutableStateFlow(false)
     val sortByName: StateFlow<Boolean> = _sortByName.asStateFlow()
 
+    // Incrémenté manuellement après un déplacement de fichier réussi, pour forcer un nouveau scan MediaStore
+    private val _folderRefreshTrigger = MutableStateFlow(0)
+    fun refreshFolder() { _folderRefreshTrigger.value++ }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
     val photoUris: StateFlow<List<String>> = combine(
-        repository.getPhotoUrisByAlbum(albumId), _sortByName
-    ) { uris, byName -> uris to byName }
-        .map { (uris, byName) ->
-            if (byName) {
-                uris.sortedBy { uriString ->
-                    mediaStoreHelper.getPhotoInfo(Uri.parse(uriString))?.nom?.lowercase() ?: ""
-                }
-            } else uris
+        _album.filterNotNull(), _sortByName, _folderRefreshTrigger
+    ) { album, byName, _ ->
+        album to byName
+    }.flatMapLatest { (album, byName) ->
+        if (album.folderPath != null) {
+            flow {
+                emit(bucketHelper.getPhotosInBucket(album.folderPath, byName).map { it.uri.toString() })
+            }
+        } else {
+            repository.getPhotoUrisByAlbum(albumId).map { uris ->
+                if (byName) {
+                    uris.sortedBy { uriString -> mediaStoreHelper.getPhotoInfo(Uri.parse(uriString))?.nom?.lowercase() ?: "" }
+                } else uris
+            }
         }
-        .flowOn(Dispatchers.IO)
+    }.flowOn(Dispatchers.IO)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     init {

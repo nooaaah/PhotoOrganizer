@@ -38,4 +38,7 @@ interface AlbumDao {
 
     @Query("UPDATE albums SET isFavori = :isFavori WHERE id = :id")
     suspend fun setFavori(id: Long, isFavori: Boolean)
+
+    @Query("SELECT * FROM albums WHERE folderPath = :path LIMIT 1")
+    suspend fun getAlbumByFolderPath(path: String): Album?
 }

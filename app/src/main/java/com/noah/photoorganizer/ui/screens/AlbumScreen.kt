@@ -1,6 +1,10 @@
 package com.noah.photoorganizer.ui.screens
 
 import android.net.Uri
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -16,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.noah.photoorganizer.data.mediastore.FolderHelper
 import com.noah.photoorganizer.data.mediastore.groupUrisByDate
 import com.noah.photoorganizer.ui.MediaThumbnail
 
@@ -39,14 +44,47 @@ fun AlbumScreen(
     val sortByName by viewModel.sortByName.collectAsState()
     var groupByDateOn by remember { mutableStateOf(false) }
 
-    var showDeleteAlbumConfirm by remember { mutableStateOf(false) }
     var showPicker by remember { mutableStateOf(false) }
+    var pendingMoveUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
+
+    val moveLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            val path = album?.folderPath
+            if (path != null) {
+                val folderHelper = FolderHelper(context)
+                pendingMoveUris.forEach { folderHelper.moveToFolder(it, path) }
+                viewModel.refreshFolder()
+            }
+        }
+        pendingMoveUris = emptyList()
+    }
 
     if (showPicker) {
         PhotoPickerScreen(
             onCancel = { showPicker = false },
             onConfirm = { selected ->
-                viewModel.addPhotos(selected.map { it.uri })
+                val folderPath = album?.folderPath
+                val uris = selected.map { it.uri }
+                if (folderPath != null) {
+                    val folderHelper = FolderHelper(context)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        val pendingIntent = folderHelper.requestMovePermission(uris)
+                        if (pendingIntent != null) {
+                            pendingMoveUris = uris
+                            moveLauncher.launch(IntentSenderRequest.Builder(pendingIntent.intentSender).build())
+                        } else {
+                            uris.forEach { folderHelper.moveToFolder(it, folderPath) }
+                            viewModel.refreshFolder()
+                        }
+                    } else {
+                        uris.forEach { folderHelper.moveToFolder(it, folderPath) }
+                        viewModel.refreshFolder()
+                    }
+                } else {
+                    viewModel.addPhotos(uris)
+                }
                 showPicker = false
             }
         )
@@ -78,9 +116,6 @@ fun AlbumScreen(
                             imageVector = if (sortByName) Icons.Default.SortByAlpha else Icons.Default.Schedule,
                             contentDescription = "Trier"
                         )
-                    }
-                    IconButton(onClick = { showDeleteAlbumConfirm = true }) {
-                        Icon(Icons.Default.Delete, contentDescription = "Supprimer l'album")
                     }
                 }
             )
@@ -123,23 +158,6 @@ fun AlbumScreen(
                 }
             }
         }
-    }
-
-    if (showDeleteAlbumConfirm) {
-        AlertDialog(
-            onDismissRequest = { showDeleteAlbumConfirm = false },
-            title = { Text("Supprimer l'album ?") },
-            text = { Text("L'album \"${album?.nom}\" sera supprimé. Les photos qu'il contient resteront sur le téléphone, seul l'album disparaît.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    showDeleteAlbumConfirm = false
-                    viewModel.deleteAlbum(onDone = onBack)
-                }) { Text("Supprimer") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteAlbumConfirm = false }) { Text("Annuler") }
-            }
-        )
     }
 }
 

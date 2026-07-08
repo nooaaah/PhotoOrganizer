@@ -53,6 +53,15 @@ class PhotoOrganizerRepository(
     suspend fun addFavori(photoUri: String) = favoriDao.insert(Favori(photoUri))
     suspend fun removeFavori(photoUri: String) = favoriDao.removeFavori(photoUri)
 
+    suspend fun getOrCreateAlbumForBucket(bucket: com.noah.photoorganizer.data.mediastore.BucketInfo): Album {
+        // Cherche si un album existe déjà pour ce dossier (par son chemin), sinon le crée
+        val existing = albumDao.getAlbumByFolderPath(bucket.relativePath)
+        if (existing != null) return existing
+        val newAlbum = Album(nom = bucket.displayName, folderPath = bucket.relativePath, groupeId = null)
+        val id = albumDao.insert(newAlbum)
+        return newAlbum.copy(id = id)
+    }
+
     suspend fun getAlbumCoverUri(albumId: Long): String? = albumPhotoDao.getFirstPhotoUriOnce(albumId)
     suspend fun getAlbumPhotoCount(albumId: Long): Int = albumPhotoDao.getPhotoCount(albumId)
 
