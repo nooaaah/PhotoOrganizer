@@ -65,7 +65,6 @@ fun RootScreen(viewModel: RootViewModel = viewModel(), onAlbumClick: (Long) -> U
     var albumActionTarget by remember { mutableStateOf<Album?>(null) }
     var groupeToDelete by remember { mutableStateOf<Groupe?>(null) }
     var albumToDelete by remember { mutableStateOf<Album?>(null) }
-    var albumDeleteBlocked by remember { mutableStateOf(false) }
     var groupeToMove by remember { mutableStateOf<Groupe?>(null) }
     var albumToMove by remember { mutableStateOf<Album?>(null) }
     var groupeToEdit by remember { mutableStateOf<Groupe?>(null) }
@@ -88,26 +87,29 @@ fun RootScreen(viewModel: RootViewModel = viewModel(), onAlbumClick: (Long) -> U
         pendingDeleteUris = emptyList()
     }
 
-    fun performAppAlbumDeletion(album: Album, folderPath: String) {
+    fun performAlbumDeletion(album: Album, folderPath: String) {
         val folderHelper = FolderHelper(context)
         val bucketHelper = BucketHelper(context)
         val photos = bucketHelper.getPhotosInBucket(folderPath)
+
         if (photos.isEmpty()) {
             viewModel.deleteAlbum(album)
             return
         }
+
         val uris = photos.map { it.uri }
         pendingDeleteAlbum = album
         pendingDeleteUris = photos.map { it.uri to it.isVideo }
+
         val pendingIntent = folderHelper.requestMovePermission(uris)
-        if (pendingIntent != null) {
-            moveOutLauncher.launch(IntentSenderRequest.Builder(pendingIntent.intentSender).build())
-        } else {
+        if (pendingIntent == null) {
             photos.forEach { folderHelper.moveToFolder(it.uri, folderHelper.baseFolderFor(it.isVideo)) }
             viewModel.deleteAlbum(album)
             pendingDeleteAlbum = null
             pendingDeleteUris = emptyList()
+            return
         }
+        moveOutLauncher.launch(IntentSenderRequest.Builder(pendingIntent.intentSender).build())
     }
 
     groupeToMove?.let { groupe ->
@@ -315,26 +317,11 @@ fun RootScreen(viewModel: RootViewModel = viewModel(), onAlbumClick: (Long) -> U
                         albumActionTarget = null
                     }) { Text("Modifier") }
                     TextButton(onClick = {
-                        val folderPath = album.folderPath
-                        val folderHelper = FolderHelper(context)
-                        if (folderPath != null && !folderHelper.isAppManagedFolder(folderPath)) {
-                            albumDeleteBlocked = true
-                        } else {
-                            albumToDelete = album
-                        }
+                        albumToDelete = album
                         albumActionTarget = null
                     }) { Text("Supprimer") }
                 }
             }
-        )
-    }
-
-    if (albumDeleteBlocked) {
-        AlertDialog(
-            onDismissRequest = { albumDeleteBlocked = false },
-            title = { Text("Impossible de supprimer") },
-            text = { Text("Ce dossier existe sur ton téléphone en dehors de l'app (ex: Camera, Screenshots). Il ne peut pas être supprimé depuis PhotoOrganizer — utilise l'Explorateur de fichiers si tu veux vraiment le supprimer.") },
-            confirmButton = { TextButton(onClick = { albumDeleteBlocked = false }) { Text("Compris") } }
         )
     }
 
@@ -392,7 +379,7 @@ fun RootScreen(viewModel: RootViewModel = viewModel(), onAlbumClick: (Long) -> U
             confirmButton = {
                 TextButton(onClick = {
                     if (folderPath != null) {
-                        performAppAlbumDeletion(album, folderPath)
+                        performAlbumDeletion(album, folderPath)
                     } else {
                         viewModel.deleteAlbum(album)
                     }

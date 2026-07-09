@@ -62,7 +62,6 @@ fun PhotoViewerScreen(
         if (result.resultCode == Activity.RESULT_OK) onDeleteSuccess()
     }
 
-    // Permission pour déplacer le fichier hors du dossier (album "vrai dossier")
     val moveOutLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult()
     ) { result ->
@@ -100,24 +99,20 @@ fun PhotoViewerScreen(
 
     fun removeFromAlbum() {
         val folderPath = album?.folderPath
-        if (folderPath != null) {
-            // Album = vrai dossier : on déplace physiquement le fichier hors de ce dossier
-            val folderHelper = FolderHelper(context)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                val pendingIntent = folderHelper.requestMovePermission(listOf(photoUri))
-                if (pendingIntent != null) {
-                    moveOutLauncher.launch(IntentSenderRequest.Builder(pendingIntent.intentSender).build())
-                } else {
-                    folderHelper.moveToFolder(photoUri, "Pictures/")
-                    onBack()
-                }
-            } else {
-                folderHelper.moveToFolder(photoUri, "Pictures/")
-                onBack()
-            }
-        } else {
-            // Album virtuel : juste l'association en base
+        if (folderPath == null) {
             viewModel.removeFromAlbumOnly(onDone = onBack)
+            return
+        }
+
+        val folderHelper = FolderHelper(context)
+        val needsPermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+        val pendingIntent = if (needsPermission) folderHelper.requestMovePermission(listOf(photoUri)) else null
+
+        if (pendingIntent != null) {
+            moveOutLauncher.launch(IntentSenderRequest.Builder(pendingIntent.intentSender).build())
+        } else {
+            folderHelper.moveToFolder(photoUri, "Pictures/")
+            onBack()
         }
     }
 

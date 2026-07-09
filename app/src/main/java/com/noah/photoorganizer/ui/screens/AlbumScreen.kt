@@ -67,23 +67,23 @@ fun AlbumScreen(
             onConfirm = { selected ->
                 val folderPath = album?.folderPath
                 val uris = selected.map { it.uri }
-                if (folderPath != null) {
-                    val folderHelper = FolderHelper(context)
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                        val pendingIntent = folderHelper.requestMovePermission(uris)
-                        if (pendingIntent != null) {
-                            pendingMoveUris = uris
-                            moveLauncher.launch(IntentSenderRequest.Builder(pendingIntent.intentSender).build())
-                        } else {
-                            uris.forEach { folderHelper.moveToFolder(it, folderPath) }
-                            viewModel.refreshFolder()
-                        }
-                    } else {
-                        uris.forEach { folderHelper.moveToFolder(it, folderPath) }
-                        viewModel.refreshFolder()
-                    }
-                } else {
+
+                if (folderPath == null) {
                     viewModel.addPhotos(uris)
+                    showPicker = false
+                    return@PhotoPickerScreen
+                }
+
+                val folderHelper = FolderHelper(context)
+                val needsPermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+                val pendingIntent = if (needsPermission) folderHelper.requestMovePermission(uris) else null
+
+                if (pendingIntent != null) {
+                    pendingMoveUris = uris
+                    moveLauncher.launch(IntentSenderRequest.Builder(pendingIntent.intentSender).build())
+                } else {
+                    uris.forEach { folderHelper.moveToFolder(it, folderPath) }
+                    viewModel.refreshFolder()
                 }
                 showPicker = false
             }

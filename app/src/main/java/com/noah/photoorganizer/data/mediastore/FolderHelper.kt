@@ -13,11 +13,9 @@ class FolderHelper(private val context: Context) {
 
     fun folderPathFor(albumNom: String): String = "$baseFolder/$albumNom/"
 
-    // true si ce dossier a été créé par notre app (donc supprimable), false si c'est un vrai dossier système
-    fun isAppManagedFolder(path: String): Boolean = path.startsWith("$baseFolder/")
-
     fun baseFolderFor(isVideo: Boolean): String = if (isVideo) "Movies/" else "Pictures/"
 
+    // Crée un vrai dossier système via MediaStore (visible dans Galerie/Explorateur dès sa création)
     fun ensureFolderExists(relativePath: String) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
 
