@@ -23,6 +23,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.noah.photoorganizer.data.mediastore.FolderHelper
 import com.noah.photoorganizer.ui.viewmodel.PhotoViewerViewModel
 import com.noah.photoorganizer.ui.viewmodel.PhotoViewerViewModelFactory
 
@@ -47,6 +48,7 @@ fun PhotoViewerScreen(
         )
     )
     val isFavori by viewModel.isFavori.collectAsState()
+    val album by viewModel.album.collectAsState()
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
     fun onDeleteSuccess() {
@@ -58,6 +60,15 @@ fun PhotoViewerScreen(
         ActivityResultContracts.StartIntentSenderForResult()
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK) onDeleteSuccess()
+    }
+
+    val moveOutLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            FolderHelper(context).moveToFolder(photoUri, "Pictures/")
+            onBack()
+        }
     }
 
     fun deletePhoto() {
@@ -83,6 +94,25 @@ fun PhotoViewerScreen(
                     onDeleteSuccess()
                 } catch (e: SecurityException) { /* pas de permission suffisante */ }
             }
+        }
+    }
+
+    fun removeFromAlbum() {
+        val folderPath = album?.folderPath
+        if (folderPath == null) {
+            viewModel.removeFromAlbumOnly(onDone = onBack)
+            return
+        }
+
+        val folderHelper = FolderHelper(context)
+        val needsPermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+        val pendingIntent = if (needsPermission) folderHelper.requestMovePermission(listOf(photoUri)) else null
+
+        if (pendingIntent != null) {
+            moveOutLauncher.launch(IntentSenderRequest.Builder(pendingIntent.intentSender).build())
+        } else {
+            folderHelper.moveToFolder(photoUri, "Pictures/")
+            onBack()
         }
     }
 
@@ -164,7 +194,14 @@ fun PhotoViewerScreen(
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
             title = { Text("Supprimer la photo") },
-            text = { Text("Retirer uniquement de cet album, ou supprimer la photo du téléphone (corbeille) ?") },
+            text = {
+                Text(
+                    if (album?.folderPath != null)
+                        "Retirer cette photo de l'album (elle sera déplacée hors du dossier), ou la supprimer du téléphone (corbeille) ?"
+                    else
+                        "Retirer uniquement de cet album, ou supprimer la photo du téléphone (corbeille) ?"
+                )
+            },
             confirmButton = {
                 TextButton(onClick = {
                     showDeleteConfirm = false
@@ -177,7 +214,7 @@ fun PhotoViewerScreen(
                     if (albumId != null) {
                         TextButton(onClick = {
                             showDeleteConfirm = false
-                            viewModel.removeFromAlbumOnly(onDone = onBack)
+                            removeFromAlbum()
                         }) { Text("Retirer de l'album") }
                     }
                 }

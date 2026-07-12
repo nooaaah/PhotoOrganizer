@@ -1,5 +1,10 @@
 package com.noah.photoorganizer.ui.screens
 
+import android.app.Activity
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -11,15 +16,18 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.noah.photoorganizer.data.mediastore.BucketHelper
+import com.noah.photoorganizer.data.mediastore.FolderHelper
 import com.noah.photoorganizer.data.model.Album
 import com.noah.photoorganizer.data.model.Groupe
 import com.noah.photoorganizer.ui.groupByDate
 import com.noah.photoorganizer.ui.rememberPhotoPermissionState
+import com.noah.photoorganizer.ui.viewmodel.BucketSyncViewModel
 import com.noah.photoorganizer.ui.viewmodel.RootViewModel
 import com.noah.photoorganizer.ui.viewmodel.SortMode
-import androidx.activity.compose.BackHandler
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -33,10 +41,20 @@ fun RootScreen(viewModel: RootViewModel = viewModel(), onAlbumClick: (Long) -> U
         return
     }
 
+    val bucketSyncViewModel: BucketSyncViewModel = viewModel()
+    val syncDone by bucketSyncViewModel.syncDone.collectAsState()
+
+    if (!syncDone) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
+        }
+        return
+    }
+
+    val context = LocalContext.current
     val groupes by viewModel.groupes.collectAsState()
     val albums by viewModel.albums.collectAsState()
     val canGoBack by viewModel.canGoBack.collectAsState()
-    BackHandler(enabled = canGoBack) { viewModel.navigateBack() }
     val sortMode by viewModel.sortMode.collectAsState()
     var groupByDateOn by remember { mutableStateOf(false) }
 
@@ -51,6 +69,48 @@ fun RootScreen(viewModel: RootViewModel = viewModel(), onAlbumClick: (Long) -> U
     var albumToMove by remember { mutableStateOf<Album?>(null) }
     var groupeToEdit by remember { mutableStateOf<Groupe?>(null) }
     var albumToEdit by remember { mutableStateOf<Album?>(null) }
+
+    var pendingDeleteAlbum by remember { mutableStateOf<Album?>(null) }
+    var pendingDeleteUris by remember { mutableStateOf<List<Pair<Uri, Boolean>>>(emptyList()) }
+
+    val moveOutLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val folderHelper = FolderHelper(context)
+            pendingDeleteUris.forEach { (uri, isVideo) ->
+                folderHelper.moveToFolder(uri, folderHelper.baseFolderFor(isVideo))
+            }
+            pendingDeleteAlbum?.let { viewModel.deleteAlbum(it) }
+        }
+        pendingDeleteAlbum = null
+        pendingDeleteUris = emptyList()
+    }
+
+    fun performAlbumDeletion(album: Album, folderPath: String) {
+        val folderHelper = FolderHelper(context)
+        val bucketHelper = BucketHelper(context)
+        val photos = bucketHelper.getPhotosInBucket(folderPath)
+
+        if (photos.isEmpty()) {
+            viewModel.deleteAlbum(album)
+            return
+        }
+
+        val uris = photos.map { it.uri }
+        pendingDeleteAlbum = album
+        pendingDeleteUris = photos.map { it.uri to it.isVideo }
+
+        val pendingIntent = folderHelper.requestMovePermission(uris)
+        if (pendingIntent == null) {
+            photos.forEach { folderHelper.moveToFolder(it.uri, folderHelper.baseFolderFor(it.isVideo)) }
+            viewModel.deleteAlbum(album)
+            pendingDeleteAlbum = null
+            pendingDeleteUris = emptyList()
+            return
+        }
+        moveOutLauncher.launch(IntentSenderRequest.Builder(pendingIntent.intentSender).build())
+    }
 
     groupeToMove?.let { groupe ->
         GroupePickerScreen(
@@ -304,12 +364,27 @@ fun RootScreen(viewModel: RootViewModel = viewModel(), onAlbumClick: (Long) -> U
     }
 
     albumToDelete?.let { album ->
+        val folderPath = album.folderPath
         AlertDialog(
             onDismissRequest = { albumToDelete = null },
             title = { Text("Supprimer l'album ?") },
-            text = { Text("L'album \"${album.nom}\" sera supprimé. Les photos qu'il contient resteront sur le téléphone.") },
+            text = {
+                Text(
+                    if (folderPath != null)
+                        "L'album \"${album.nom}\" sera supprimé. Les photos/vidéos qu'il contient seront renvoyées dans Pictures/Movies, pas supprimées."
+                    else
+                        "L'album \"${album.nom}\" sera supprimé. Les photos qu'il contient resteront sur le téléphone."
+                )
+            },
             confirmButton = {
-                TextButton(onClick = { viewModel.deleteAlbum(album); albumToDelete = null }) { Text("Supprimer") }
+                TextButton(onClick = {
+                    if (folderPath != null) {
+                        performAlbumDeletion(album, folderPath)
+                    } else {
+                        viewModel.deleteAlbum(album)
+                    }
+                    albumToDelete = null
+                }) { Text("Supprimer") }
             },
             dismissButton = { TextButton(onClick = { albumToDelete = null }) { Text("Annuler") } }
         )

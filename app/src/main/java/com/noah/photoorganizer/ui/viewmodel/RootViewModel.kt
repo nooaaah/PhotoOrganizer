@@ -70,7 +70,10 @@ class RootViewModel(application: Application) : AndroidViewModel(application) {
     fun createAlbum(nom: String) {
         if (nom.isBlank()) return
         viewModelScope.launch {
-            repository.insertAlbum(Album(nom = nom, groupeId = currentGroupeId.value))
+            val folderHelper = com.noah.photoorganizer.data.mediastore.FolderHelper(getApplication())
+            val folderPath = folderHelper.folderPathFor(nom)
+            folderHelper.ensureFolderExists(folderPath)
+            repository.insertAlbum(Album(nom = nom, groupeId = currentGroupeId.value, folderPath = folderPath))
         }
     }
 

@@ -25,10 +25,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.noah.photoorganizer.data.database.AppDatabase
+import com.noah.photoorganizer.data.mediastore.BucketHelper
 import com.noah.photoorganizer.data.model.Album
 import com.noah.photoorganizer.data.model.Groupe
 import com.noah.photoorganizer.data.repository.PhotoOrganizerRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 private fun rememberRepository(): PhotoOrganizerRepository {
@@ -43,13 +46,25 @@ private fun rememberRepository(): PhotoOrganizerRepository {
 @Composable
 fun AlbumGridItem(album: Album, onClick: () -> Unit, onLongClick: () -> Unit) {
     val repository = rememberRepository()
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var autoCoverUri by remember(album.id) { mutableStateOf<String?>(null) }
     var count by remember(album.id) { mutableStateOf(0) }
 
-    LaunchedEffect(album.id) {
-        autoCoverUri = repository.getAlbumCoverUri(album.id)
-        count = repository.getAlbumPhotoCount(album.id)
+    LaunchedEffect(album.id, album.folderPath) {
+        withContext(Dispatchers.IO) {
+            if (album.folderPath != null) {
+                // Album = vrai dossier physique : on lit directement MediaStore
+                val bucketHelper = BucketHelper(context)
+                val photos = bucketHelper.getPhotosInBucket(album.folderPath)
+                autoCoverUri = photos.firstOrNull()?.uri?.toString()
+                count = photos.size
+            } else {
+                // Album virtuel : notre table d'association
+                autoCoverUri = repository.getAlbumCoverUri(album.id)
+                count = repository.getAlbumPhotoCount(album.id)
+            }
+        }
     }
 
     val displayCoverUri = album.coverUri ?: autoCoverUri

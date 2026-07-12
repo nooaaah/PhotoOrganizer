@@ -11,5 +11,6 @@ data class Album(
     val coverUri: String? = null,
     val groupeId: Long? = null,
     val dateCreation: Long = System.currentTimeMillis(),
-    val isFavori: Boolean = false
+    val isFavori: Boolean = false,
+    val folderPath: String? = null // Chemin relatif du vrai dossier Android (ex: "DCIM/Camera/", "Pictures/PhotoOrganizer/MonAlbum/")
 )
